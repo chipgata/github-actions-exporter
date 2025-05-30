@@ -3,12 +3,11 @@ package metrics
 import (
 	"context"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/google/go-github/v45/github"
 
-	"github.com/spendesk/github-actions-exporter/pkg/config"
+	"github.com/chipgata/github-actions-exporter/pkg/config"
 )
 
 var (
@@ -89,22 +88,6 @@ func periodicGithubFetcher() {
 			}
 		}
 		repositories = repos_to_fetch
-
-		// Fetch workflows
-		non_empty_repos := make([]string, 0)
-		ww := make(map[string]map[int64]github.Workflow)
-		for _, repo := range repos_to_fetch {
-			r := strings.Split(repo, "/")
-			workflows_for_repo := getAllWorkflowsForRepo(r[0], r[1])
-			if len(workflows_for_repo) == 0 {
-				continue
-			}
-			non_empty_repos = append(non_empty_repos, repo)
-			ww[repo] = workflows_for_repo
-			log.Printf("Fetched %d workflows for repository %s", len(ww[repo]), repo)
-		}
-		repositories = non_empty_repos
-		workflows = ww
 
 		time.Sleep(time.Duration(config.Github.Refresh) * 5 * time.Second)
 	}

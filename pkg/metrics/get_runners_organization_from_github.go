@@ -4,9 +4,10 @@ import (
 	"context"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/spendesk/github-actions-exporter/pkg/config"
+	"github.com/chipgata/github-actions-exporter/pkg/config"
 
 	"github.com/google/go-github/v45/github"
 	"github.com/prometheus/client_golang/prometheus"
@@ -18,7 +19,7 @@ var (
 			Name: "github_runner_organization_status",
 			Help: "runner status",
 		},
-		[]string{"organization", "os", "name", "id", "busy"},
+		[]string{"organization", "os", "name", "id", "busy", "labels"},
 	)
 )
 
@@ -52,10 +53,17 @@ func getRunnersOrganizationFromGithub() {
 		for _, orga := range config.Github.Organizations.Value() {
 			runners := getAllOrgRunners(orga)
 			for _, runner := range runners {
+				labels := ""
+				if len(runner.Labels) > 0 {
+					for _, label := range runner.Labels {
+						labels += label.GetName() + ","
+					}
+					labels = strings.TrimSuffix(labels, ",")
+				}
 				if runner.GetStatus() == "online" {
-					runnersOrganizationGauge.WithLabelValues(orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10), strconv.FormatBool(runner.GetBusy())).Set(1)
+					runnersOrganizationGauge.WithLabelValues(orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10), strconv.FormatBool(runner.GetBusy()), labels).Set(1)
 				} else {
-					runnersOrganizationGauge.WithLabelValues(orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10), strconv.FormatBool(runner.GetBusy())).Set(0)
+					runnersOrganizationGauge.WithLabelValues(orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10), strconv.FormatBool(runner.GetBusy()), labels).Set(0)
 				}
 			}
 		}

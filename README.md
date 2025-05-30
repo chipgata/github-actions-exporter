@@ -1,30 +1,18 @@
-## Change of organization
-The project was migrated to another organization because it was no longer maintained.
-In the coming weeks, changes will be made on various points (code and container image) and also an update of all the libraries.
-If there are feature requests, you can make them in the issues. For a better understanding of the requested features, having a detailed description or example will be greatly appreciated.
-
 # github-actions-exporter
-github-actions-exporter for prometheus
+github-actions-exporter for prometheus, which will focus on GitHub self-hosted runners performance
 
-![Release pipeline](https://github.com/Labbs/github-actions-exporter/actions/workflows/release.yml/badge.svg)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Spendesk/github-actions-exporter)](https://goreportcard.com/report/github.com/Spendesk/github-actions-exporter)
+## The Motivation
+This project was forked from https://github.com/Labbs/github-actions-exporter, which is focusing on GitHub Actions Runner. And since the original repo long time no maintenance, and we want to focus on Self-Hosted Runner, so these are main reasons I forked and updated almost the code.
 
-Container image : https://github.com/Labbs/github-actions-exporter/pkgs/container/github-actions-exporter
-
-Helm Chart :
-```
- helm chart repo: https://labbs.github.io/github-actions-exporter/
- chart: github-actions-exporter
- version: "0.1.4"
-```
-
-## Information
-If you want to monitor a public repository, you must put the public_repo option in the repo scope of your github token or Github App Authentication.
-
-## Authentication 
-
-Authentication can either via a Github Token or the Github App Authentication 3 parameters. When installing via the Helm Chart the authentication is provided via a secret.
-
+## The Features
+- Collected GitHub Actions Workflow data
+- Collected Github Actions Workflow jobs data
+- Collected Github Actions self-hosted runner data
+- Tracking API rate limit remaining from GitHub API
+- Grafaba dashboard samples
+- Optimize and reduce GitHub API calling
+- Unit tests coverage`(Soon)`
+- CI/CD automation build binary, docker image and publish release support`(Soon)`
 
 
 ## Options
@@ -160,34 +148,6 @@ Gauge type
 | name | Runner name |
 | os | Operating system (linux/macos/windows) |
 
-### github_workflow_usage_seconds
-Gauge type
-(If you have private repositories that use GitHub-hosted runners)
-
-**Result possibility**
-
-| Gauge | Description |
-|---|---|
-| seconds | Number of billable seconds used by a specific workflow during the current billing cycle. |
-
-**Fields**
-
-| Name | Description |
-|---|---|
-| id | Workflow id (incremental id) |
-| node_id | Node ID (github actions) |
-| name | workflow name |
-| os | Operating system (linux/macos/windows) |
-| repo | Repository like \<org>/\<repo> |
-| status | Workflow status |
-
-Example:
-
-```
-# HELP github_workflow_usage Number of billable seconds used by a specific workflow during the current billing cycle. Any job re-runs are also included in the usage. Only apply to workflows in private repositories that use GitHub-hosted runners.
-# TYPE github_workflow_usage gauge
-github_workflow_usage_seconds{id="2862037",name="Create Release",node_id="MDg6V29ya2Zsb3cyODYyMDM3",repo="xxx/xxx",state="active",os="UBUNTU"} 706.609
-```
 
 ## Setting up authentication with GitHub API
 
@@ -200,7 +160,7 @@ Functionality wise, there isn't much of a difference between the 2 authenticatio
 
 If you are deploying the solution for a GitHub Enterprise Server environment you are able to [configure your rate limiting settings](https://docs.github.com/en/enterprise-server@3.0/admin/configuration/configuring-rate-limits) making the main benefit irrelevant. If you're deploying the solution for a GitHub Enterprise Cloud or regular GitHub environment and you run into rate limiting issues, consider deploying the solution using the GitHub App authentication method instead.
 
-### Deploying using GitHub App Authentication
+### GitHub App Authentication
 
 You can create a GitHub App for either your account or any organization. If you want to create a GitHub App for your account, open the following link to the creation page, enter any unique name in the "GitHub App name" field, and hit the "Create GitHub App" button at the bottom of the page.
 
@@ -210,20 +170,21 @@ If you want to create a GitHub App for your organization, replace the `:org` par
 
 - [Create GitHub Apps on your organization](https://github.com/organizations/:org/settings/apps/new?url=http://github.com/github-actions-exporter/github-actions-exporter&webhook_active=false&public=false&administration=write&organization_self_hosted_runners=write&actions=read)
 
-### Github Token configuration
+### Github Token/App Permissions
 
-Scopes needed configuration for the Github token
+Scopes needed configuration for the Github token/app
 
 ```
 repo
-  - repo:status
-  - repo_deployment
-  - public_repo
+  - Actions: Read-only
+  - Administration: Read-only
+  - Deployments: Read-only
 
-admin:org
-  - write:org
-  - read:org
+org
+  - Self-hosted runners: Read-only
 ```
+
+If you want to monitor a public repository, you must put the `public_repo` option in the repo scope of your github token or Github App Authentication.
 
 ### Authentication Errors
 
@@ -240,46 +201,3 @@ admin:org
  ```
   Error: Client creation failed.authentication failed: could not parse private key: Invalid Key: Key must be PEM encoded PKCS1 or PKCS8 private ke
  ```
-
-###  Secret actions-exporter 
-
-In the kubernetes deployment authentication is passed via a kubernetes secret: 
-
-```
-kind: Secret
-apiVersion: v1
-metadata:
-  name: actions-exporter
-  namespace: github-actions-exporter
-type: Opaque
-data:
-  github_token: AAAAAA
-#  github_app_id: BBBBBB
-#  github_app_installation_id: CCCCCCCCC
-#  github_app_private_key: DDDDDDD
-```
-
-Or more probably using an external secret manager. Here is an example of using External Secrets with the EKS Secret Manager to define the authentication in a secret: 
-
-```
-apiVersion: 'kubernetes-client.io/v1'
-kind: ExternalSecret
-metadata:
-  name: actions-exporter
-  namespace: github-actions-exporter
-spec:
-  backendType: secretsManager
-  data:
- #   - key: MySecretManagerKey
- #     name: github_token
- #     property: github_token
-    - key: MySecretManagerKey
-      name: github_app_id
-      property: github_app_id
-    - key: MySecretManagerKey
-      name: github_app_installation_id
-      property: github_app_installation_id
-  # separate plaintext aws secret needed for ssh key
-    - key: MySecretManagerKeyPrivateKey
-      name: github_app_private_key
-```

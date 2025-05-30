@@ -3,13 +3,31 @@ package metrics
 import (
 	"context"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/spendesk/github-actions-exporter/pkg/config"
+	"github.com/chipgata/github-actions-exporter/pkg/config"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/google/go-github/v45/github"
+)
+
+var (
+	workflowJobDurationTotalGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "github_workflow_job_duration_total_ms",
+		Help: "The total duration of jobs.",
+	},
+		[]string{"org", "repo", "branch", "status", "conclusion", "runner_group", "workflow_name", "job_name", "job_id"},
+	)
+
+	workflowJobStatusCounter = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "github_workflow_job_status_count",
+		Help: "Count of workflow job events.",
+	},
+		[]string{"org", "repo", "branch", "status", "conclusion", "runner_group", "workflow_name", "job_name", "job_id"},
+	)
 )
 
 // getFieldValue return value from run element which corresponds to field
@@ -30,17 +48,17 @@ func getFieldValue(repo string, run github.WorkflowRun, field string) string {
 	case "workflow_id":
 		return strconv.FormatInt(*run.WorkflowID, 10)
 	case "workflow":
-		r, exist := workflows[repo]
-		if !exist {
-			log.Printf("Couldn't fetch repo '%s' from workflow cache.", repo)
-			return "unknown"
-		}
-		w, exist := r[*run.WorkflowID]
-		if !exist {
-			log.Printf("Couldn't fetch repo '%s', workflow '%d' from workflow cache.", repo, *run.WorkflowID)
-			return "unknown"
-		}
-		return *w.Name
+		// r, exist := workflows[repo]
+		// if !exist {
+		// 	log.Printf("Couldn't fetch repo '%s' from workflow cache.", repo)
+		// 	return "unknown"
+		// }
+		// w, exist := r[*run.WorkflowID]
+		// if !exist {
+		// 	log.Printf("Couldn't fetch repo '%s', workflow '%d' from workflow cache.", repo, *run.WorkflowID)
+		// 	return "unknown"
+		// }
+		return *run.Name
 	case "event":
 		return *run.Event
 	case "status":
@@ -60,7 +78,7 @@ func getRelevantFields(repo string, run *github.WorkflowRun) []string {
 }
 
 func getRecentWorkflowRuns(owner string, repo string) []*github.WorkflowRun {
-	window_start := time.Now().Add(time.Duration(-12) * time.Hour).Format(time.RFC3339)
+	window_start := time.Now().Add(time.Duration(-1) * time.Hour).Format(time.RFC3339)
 	opt := &github.ListWorkflowRunsOptions{
 		ListOptions: github.ListOptions{PerPage: 200},
 		Created:     ">=" + window_start,
@@ -86,6 +104,34 @@ func getRecentWorkflowRuns(owner string, repo string) []*github.WorkflowRun {
 	}
 
 	return runs
+}
+
+func getWorkflowJobs(owner string, repo string, runId int64) []*github.WorkflowJob {
+	opt := &github.ListWorkflowJobsOptions{
+		Filter:      "all",
+		ListOptions: github.ListOptions{PerPage: 200},
+	}
+
+	var jobs []*github.WorkflowJob
+	for {
+		resp, rr, err := client.Actions.ListWorkflowJobs(context.Background(), owner, repo, runId, opt)
+		if rl_err, ok := err.(*github.RateLimitError); ok {
+			log.Printf("ListWorkflowJobs ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
+			time.Sleep(time.Until(rl_err.Rate.Reset.Time))
+			continue
+		} else if err != nil {
+			log.Printf("ListWorkflowJobs error for repo %s/%s: %s", owner, repo, err.Error())
+			return jobs
+		}
+
+		jobs = append(jobs, resp.Jobs...)
+		if rr.NextPage == 0 {
+			break
+		}
+		opt.Page = rr.NextPage
+	}
+
+	return jobs
 }
 
 func getRunUsage(owner string, repo string, runId int64) *github.WorkflowRunUsage {
@@ -138,6 +184,36 @@ func getWorkflowRunsFromGithub() {
 				} else {
 					workflowRunDurationGauge.WithLabelValues(fields...).Set(float64(run_usage.GetRunDurationMS()))
 				}
+
+				jobs := getWorkflowJobs(r[0], r[1], *run.ID)
+				for _, job := range jobs {
+					if job.GetStatus() == "completed" {
+						jobSeconds := math.Max(0, job.GetCompletedAt().Time.Sub(job.GetStartedAt().Time).Seconds())
+						workflowJobDurationTotalGauge.WithLabelValues(
+							r[0], r[1], run.GetHeadBranch(), job.GetStatus(), job.GetConclusion(),
+							job.GetRunnerGroupName(), run.GetName(), job.GetName(), strconv.FormatInt(job.GetID(), 10),
+						).Set(jobSeconds * 1000)
+					}
+
+					var j float64 = 0
+					if job.GetConclusion() == "success" {
+						j = 1
+					} else if job.GetConclusion() == "failure" {
+						j = 2
+					} else if job.GetConclusion() == "cancelled" {
+						j = 3
+					} else if job.GetConclusion() == "skipped" {
+						j = 4
+					} else if job.GetConclusion() == "timed_out" {
+						j = 5
+					} else if job.GetConclusion() == "action_required" {
+						j = 6
+					} else if job.GetConclusion() == "neutral" {
+						j = 7
+					}
+					workflowJobStatusCounter.WithLabelValues(r[0], r[1], run.GetHeadBranch(), job.GetStatus(), job.GetConclusion(), job.GetRunnerGroupName(), run.GetName(), job.GetName(), strconv.FormatInt(job.GetID(), 10)).Set(j)
+				}
+
 			}
 		}
 

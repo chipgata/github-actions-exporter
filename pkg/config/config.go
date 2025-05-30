@@ -67,7 +67,7 @@ func InitConfiguration() []cli.Flag {
 			Name:        "github_refresh",
 			Aliases:     []string{"gr"},
 			EnvVars:     []string{"GITHUB_REFRESH"},
-			Value:       30,
+			Value:       60,
 			Usage:       "Refresh time Github Pipelines status in sec",
 			Destination: &Github.Refresh,
 		},
@@ -117,7 +117,7 @@ func InitConfiguration() []cli.Flag {
 			Name:        "fetch_workflow_run_usage",
 			EnvVars:     []string{"FETCH_WORKFLOW_RUN_USAGE"},
 			Usage:       "When true, will perform an API call per workflow run to fetch the workflow usage",
-			Value:       true,
+			Value:       false,
 			Destination: &Metrics.FetchWorkflowRunUsage,
 		},
 		&cli.Int64Flag{

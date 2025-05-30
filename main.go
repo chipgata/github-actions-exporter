@@ -6,8 +6,8 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/spendesk/github-actions-exporter/pkg/config"
-	"github.com/spendesk/github-actions-exporter/pkg/server"
+	"github.com/chipgata/github-actions-exporter/pkg/config"
+	"github.com/chipgata/github-actions-exporter/pkg/server"
 )
 
 var (

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/spendesk/github-actions-exporter/pkg/config"
+	"github.com/chipgata/github-actions-exporter/pkg/config"
 
 	"github.com/google/go-github/v45/github"
 	"github.com/prometheus/client_golang/prometheus"
@@ -49,6 +49,7 @@ func getAllEnterpriseRunners() []*github.Runner {
 
 func getRunnersEnterpriseFromGithub() {
 	if config.EnterpriseName == "" {
+		log.Println("Skipping getRunnersEnterpriseFromGithub, as EnterpriseName is not set.")
 		return
 	}
 	for {

@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/spendesk/github-actions-exporter/pkg/config"
+	"github.com/chipgata/github-actions-exporter/pkg/config"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/die-net/lrucache"
@@ -30,14 +30,14 @@ func InitMetrics() {
 	workflowRunStatusGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "github_workflow_run_status",
-			Help: "Workflow run status of all workflow runs created in the last 12hr",
+			Help: "Workflow run status of all workflow runs created in the last 1hr",
 		},
 		strings.Split(config.WorkflowFields, ","),
 	)
 	workflowRunDurationGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "github_workflow_run_duration_ms",
-			Help: "Workflow run duration (in milliseconds) of all workflow runs created in the last 12hr",
+			Help: "Workflow run duration (in milliseconds) of all workflow runs created in the last 1hr",
 		},
 		strings.Split(config.WorkflowFields, ","),
 	)
@@ -45,8 +45,11 @@ func InitMetrics() {
 	prometheus.MustRegister(runnersOrganizationGauge)
 	prometheus.MustRegister(workflowRunStatusGauge)
 	prometheus.MustRegister(workflowRunDurationGauge)
-	prometheus.MustRegister(workflowBillGauge)
 	prometheus.MustRegister(runnersEnterpriseGauge)
+
+	prometheus.MustRegister(workflowJobDurationTotalGauge)
+	prometheus.MustRegister(workflowJobStatusCounter)
+	prometheus.MustRegister(rateLimitGauge)
 
 	client, err = NewClient()
 	if err != nil {
@@ -54,18 +57,11 @@ func InitMetrics() {
 	}
 
 	go periodicGithubFetcher()
-
-	for {
-		if workflows != nil {
-			break
-		}
-	}
-
-	go getBillableFromGithub()
 	go getRunnersFromGithub()
 	go getRunnersOrganizationFromGithub()
 	go getWorkflowRunsFromGithub()
 	go getRunnersEnterpriseFromGithub()
+	go getRateLimitFromGithub()
 }
 
 // NewClient creates a Github Client
