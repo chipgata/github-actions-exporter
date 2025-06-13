@@ -19,14 +19,14 @@ var (
 		Name: "github_workflow_job_duration_total_ms",
 		Help: "The total duration of jobs.",
 	},
-		[]string{"org", "repo", "branch", "status", "conclusion", "runner_group", "workflow_name", "job_name", "job_id"},
+		[]string{"org", "repo", "branch", "status", "conclusion", "runner_group", "runner_labels", "workflow_name", "job_name", "job_id"},
 	)
 
 	workflowJobStatusCounter = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "github_workflow_job_status_count",
 		Help: "Count of workflow job events.",
 	},
-		[]string{"org", "repo", "branch", "status", "conclusion", "runner_group", "workflow_name", "job_name", "job_id"},
+		[]string{"org", "repo", "branch", "status", "conclusion", "runner_group", "runner_labels", "workflow_name", "job_name", "job_id"},
 	)
 )
 
@@ -48,16 +48,6 @@ func getFieldValue(repo string, run github.WorkflowRun, field string) string {
 	case "workflow_id":
 		return strconv.FormatInt(*run.WorkflowID, 10)
 	case "workflow":
-		// r, exist := workflows[repo]
-		// if !exist {
-		// 	log.Printf("Couldn't fetch repo '%s' from workflow cache.", repo)
-		// 	return "unknown"
-		// }
-		// w, exist := r[*run.WorkflowID]
-		// if !exist {
-		// 	log.Printf("Couldn't fetch repo '%s', workflow '%d' from workflow cache.", repo, *run.WorkflowID)
-		// 	return "unknown"
-		// }
 		return *run.Name
 	case "event":
 		return *run.Event
@@ -152,68 +142,102 @@ func getRunUsage(owner string, repo string, runId int64) *github.WorkflowRunUsag
 // getWorkflowRunsFromGithub - return informations and status about a workflow
 func getWorkflowRunsFromGithub() {
 	for {
+		workflowRunStatusGauge.Reset()
+		workflowRunDurationGauge.Reset()
+		workflowJobDurationTotalGauge.Reset()
+		workflowJobStatusCounter.Reset()
+		total_runs := 0
+		total_jobs := 0
+
 		for _, repo := range repositories {
 			r := strings.Split(repo, "/")
 			runs := getRecentWorkflowRuns(r[0], r[1])
+			total_runs += len(runs)
 
 			for _, run := range runs {
 				var s float64 = 0
-				if run.GetConclusion() == "success" {
-					s = 1
-				} else if run.GetConclusion() == "skipped" {
-					s = 2
-				} else if run.GetConclusion() == "in_progress" {
-					s = 3
-				} else if run.GetConclusion() == "queued" {
-					s = 4
-				}
-
 				fields := getRelevantFields(repo, run)
+				cacheWorkflowKey := r[1] + strconv.FormatInt(run.GetWorkflowID(), 10) + run.GetHeadSHA() + strconv.FormatInt(int64(run.GetRunNumber()), 10) + run.GetStatus() + run.GetConclusion()
+				cacheWorkflowValue := getCache(cacheWorkflowKey)
 
-				workflowRunStatusGauge.WithLabelValues(fields...).Set(s)
+				if cacheWorkflowValue == nil {
+					log.Printf("Cache missed for workflow run %s/%s: %s", r[0], r[1], run.GetName())
 
-				var run_usage *github.WorkflowRunUsage = nil
-				if config.Metrics.FetchWorkflowRunUsage {
-					run_usage = getRunUsage(r[0], r[1], *run.ID)
-				}
-				if run_usage == nil { // Fallback for Github Enterprise
-					created := run.CreatedAt.Time.Unix()
-					updated := run.UpdatedAt.Time.Unix()
-					elapsed := updated - created
-					workflowRunDurationGauge.WithLabelValues(fields...).Set(float64(elapsed * 1000))
-				} else {
-					workflowRunDurationGauge.WithLabelValues(fields...).Set(float64(run_usage.GetRunDurationMS()))
+					if run.GetConclusion() == "success" {
+						s = 1
+					} else if run.GetConclusion() == "skipped" {
+						s = 2
+					} else if run.GetConclusion() == "action_required" {
+						s = 3
+					} else if run.GetConclusion() == "cancelled" {
+						s = 4
+					} else if run.GetConclusion() == "failure" {
+						s = 5
+					} else if run.GetConclusion() == "neutral" {
+						s = 6
+					} else if run.GetConclusion() == "stale" {
+						s = 7
+					} else if run.GetConclusion() == "timed_out" {
+						s = 8
+					}
+
+					workflowRunStatusGauge.WithLabelValues(fields...).Set(s)
+
+					var run_usage *github.WorkflowRunUsage = nil
+					if config.Metrics.FetchWorkflowRunUsage {
+						run_usage = getRunUsage(r[0], r[1], *run.ID)
+					}
+					if run_usage == nil { // Fallback for Github Enterprise
+						created := run.CreatedAt.Time.Unix()
+						updated := run.UpdatedAt.Time.Unix()
+						elapsed := updated - created
+						workflowRunDurationGauge.WithLabelValues(fields...).Set(float64(elapsed * 1000))
+					} else {
+						workflowRunDurationGauge.WithLabelValues(fields...).Set(float64(run_usage.GetRunDurationMS()))
+					}
 				}
 
 				jobs := getWorkflowJobs(r[0], r[1], *run.ID)
+				total_jobs += len(jobs)
 				for _, job := range jobs {
-					if job.GetStatus() == "completed" {
-						jobSeconds := math.Max(0, job.GetCompletedAt().Time.Sub(job.GetStartedAt().Time).Seconds())
-						workflowJobDurationTotalGauge.WithLabelValues(
-							r[0], r[1], run.GetHeadBranch(), job.GetStatus(), job.GetConclusion(),
-							job.GetRunnerGroupName(), run.GetName(), job.GetName(), strconv.FormatInt(job.GetID(), 10),
-						).Set(jobSeconds * 1000)
-					}
+					cacheJobKey := r[1] + strconv.FormatInt(run.GetWorkflowID(), 10) + run.GetHeadSHA() + strconv.FormatInt(int64(run.GetRunNumber()), 10) + run.GetStatus() + run.GetConclusion() + job.GetConclusion() + strconv.FormatInt(job.GetID(), 10) + job.GetStatus()
+					cacheJobValue := getCache(cacheJobKey)
 
-					var j float64 = 0
-					if job.GetConclusion() == "success" {
-						j = 1
-					} else if job.GetConclusion() == "failure" {
-						j = 2
-					} else if job.GetConclusion() == "cancelled" {
-						j = 3
-					} else if job.GetConclusion() == "skipped" {
-						j = 4
-					} else if job.GetConclusion() == "timed_out" {
-						j = 5
-					} else if job.GetConclusion() == "action_required" {
-						j = 6
-					} else if job.GetConclusion() == "neutral" {
-						j = 7
+					if cacheJobValue == nil {
+						log.Printf("Cache missed for job run %s/%s: %s", r[0], r[1], job.GetName())
+
+						runnerLabelString := getRunnerLabelString(job.Labels)
+						if job.GetStatus() == "completed" {
+							jobSeconds := math.Max(0, job.GetCompletedAt().Time.Sub(job.GetStartedAt().Time).Seconds())
+							workflowJobDurationTotalGauge.WithLabelValues(
+								r[0], r[1], run.GetHeadBranch(), job.GetStatus(), job.GetConclusion(),
+								job.GetRunnerGroupName(), runnerLabelString, run.GetName(), job.GetName(), strconv.FormatInt(job.GetID(), 10),
+							).Set(jobSeconds * 1000)
+						}
+
+						var j float64 = 0
+						if job.GetConclusion() == "success" {
+							j = 1
+						} else if job.GetConclusion() == "failure" {
+							j = 2
+						} else if job.GetConclusion() == "cancelled" {
+							j = 3
+						} else if job.GetConclusion() == "skipped" {
+							j = 4
+						} else if job.GetConclusion() == "timed_out" {
+							j = 5
+						} else if job.GetConclusion() == "action_required" {
+							j = 6
+						} else if job.GetConclusion() == "neutral" {
+							j = 7
+						}
+						workflowJobStatusCounter.WithLabelValues(r[0], r[1], run.GetHeadBranch(), job.GetStatus(), job.GetConclusion(), job.GetRunnerGroupName(), runnerLabelString, run.GetName(), job.GetName(), strconv.FormatInt(job.GetID(), 10)).Set(j)
 					}
-					workflowJobStatusCounter.WithLabelValues(r[0], r[1], run.GetHeadBranch(), job.GetStatus(), job.GetConclusion(), job.GetRunnerGroupName(), run.GetName(), job.GetName(), strconv.FormatInt(job.GetID(), 10)).Set(j)
+					setCache(cacheJobKey, []byte("1"), 3600)
 				}
 
+				// Cache the result
+				setCache(cacheWorkflowKey, []byte("1"), 3600)
 			}
 		}
 

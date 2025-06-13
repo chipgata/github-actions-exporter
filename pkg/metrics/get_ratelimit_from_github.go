@@ -22,10 +22,12 @@ var (
 // getRateLimitFromGithub - return ratelimit informations.
 func getRateLimitFromGithub() {
 	for {
+		rateLimitGauge.Reset()
+
 		resp, _, err := client.RateLimits(context.Background())
 		if err != nil {
 			log.Printf("getRateLimitFromGithub error: %s", err.Error())
-			return
+			continue
 		}
 		rateLimitGauge.WithLabelValues().Set(float64(resp.Core.Remaining))
 		time.Sleep(time.Duration(config.Github.Refresh) * time.Second)

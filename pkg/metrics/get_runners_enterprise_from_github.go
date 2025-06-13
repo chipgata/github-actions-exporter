@@ -53,6 +53,7 @@ func getRunnersEnterpriseFromGithub() {
 		return
 	}
 	for {
+		runnersEnterpriseGauge.Reset()
 		runners := getAllEnterpriseRunners()
 
 		for _, runner := range runners {

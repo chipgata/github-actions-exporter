@@ -10,6 +10,8 @@ import (
 
 	"github.com/chipgata/github-actions-exporter/pkg/config"
 
+	"github.com/coocood/freecache"
+
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/die-net/lrucache"
 	"github.com/google/go-github/v45/github"
@@ -19,6 +21,7 @@ import (
 )
 
 var (
+	cache                    *freecache.Cache
 	client                   *github.Client
 	err                      error
 	workflowRunStatusGauge   *prometheus.GaugeVec
@@ -27,6 +30,9 @@ var (
 
 // InitMetrics - register metrics in prometheus lib and start func for monitor
 func InitMetrics() {
+	cacheSize := 100 * 1024 * 1024
+	cache = freecache.NewCache(cacheSize)
+
 	workflowRunStatusGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "github_workflow_run_status",
@@ -125,4 +131,30 @@ func getEnterpriseApiUrl(baseURL string) (string, error) {
 
 	// Trim trailing slash, otherwise there's double slash added to token endpoint
 	return fmt.Sprintf("%s://%s%s", baseEndpoint.Scheme, baseEndpoint.Host, strings.TrimSuffix(baseEndpoint.Path, "/")), nil
+}
+
+func getRunnerLabelString(labels []string) string {
+	var result string
+	if len(labels) > 0 {
+		for _, label := range labels {
+			result += label + ","
+		}
+		result = strings.TrimSuffix(result, ",")
+	}
+	return result
+}
+
+func setCache(key string, value []byte, ttl int) {
+	if err := cache.Set([]byte(key), value, ttl); err != nil {
+		log.Printf("setCache: Error setting cache for key %s: %v", key, err)
+	}
+}
+
+func getCache(key string) []byte {
+	value, err := cache.Get([]byte(key))
+	if err != nil {
+		log.Printf("getCache: Error getting cache for key %s: %v", key, err)
+		return nil
+	}
+	return value
 }

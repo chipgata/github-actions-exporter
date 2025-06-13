@@ -82,9 +82,6 @@ Gauge type
 | workflow | Workflow Name |
 | status | Workflow status (completed/in_progress) |
 
-### github_job
-> :warning: **This is a duplicate of the `github_workflow_run_status` metric that will soon be deprecated, do not use anymore.**
-
 ### github_runner_status
 Gauge type
 (If you have self hosted runner)
@@ -186,7 +183,7 @@ org
 
 If you want to monitor a public repository, you must put the `public_repo` option in the repo scope of your github token or Github App Authentication.
 
-### Authentication Errors
+### Common Errors
 
 #### Invalid Github Token 
  if token is invalid then `401 Bad credentials` will be returned on github API error and displayed in an error message. 
